@@ -1,3 +1,16 @@
+/*
+ * PopUp Card for Home Assistant
+ *
+ * A custom Home Assistant Lovelace card that triggers a pop-up modal based on 
+ * an entity state or numerical threshold (with anti-spam hysteresis), 
+ * supporting text, entity states, and live camera streams.
+ * 
+ * type: custom:hvl-popup-card
+ *
+ * https://github.com/ErickHVL/hvl-popup-card
+ */
+
+const CARD_VERSION = '2.0.0';
 import {
   LitElement,
   html,
@@ -15,6 +28,16 @@ window.customCards.push({
   description: "Displays a pop-up with live status or a camera stream upon a specific state change.",
 });
 
+function sanitizeAndTruncateText(text, maxLength = 150) {
+  if (!text) return "";
+  const plainText = String(text).replace(/<\/?[^>]+(>|$)/g, "");
+
+  if (plainText.length <= maxLength) {
+    return plainText;
+  }
+  return plainText.slice(0, maxLength).trim() + "...";
+}
+
 // ==========================================
 // CHAPTER 2: THE CARD CLASS
 // ==========================================
@@ -25,6 +48,16 @@ class HvlPopupCard extends LitElement {
       config: { type: Object },
       _showPopup: { type: Boolean, reflect: true, attribute: 'popup-active' },
     };
+  }
+  
+  _sanitizeAndTruncateText(text, maxLength = 150) {
+    if (!text) return "";
+    const plainText = String(text).replace(/<\/?[^>]+(>|$)/g, "");
+    
+    if (plainText.length <= maxLength) {
+      return plainText;
+    }
+    return plainText.slice(0, maxLength).trim() + "...";
   }
 
   constructor() {
@@ -51,7 +84,28 @@ class HvlPopupCard extends LitElement {
       text_color: "var(--primary-text-color, #000000)",
       font_family: "inherit",
       border_radius: "14px",
+      button_bg_color: "var(--primary-color, #03a9f4)",
+      button_txt_color: "#ffffff",
     };
+  }
+  
+  _runAction(entityId) {
+    if (!this.hass || !entityId) return;
+    const domain = entityId.split(".")[0];
+
+    if (domain === "script") {
+      // Scripts aanroepen via script.turn_on
+      this.hass.callService("script", "turn_on", { entity_id: entityId });
+    } else if (domain === "input_button") {
+      // Input buttons gebruiken hun eigen domein
+      this.hass.callService("input_button", "press", { entity_id: entityId });
+    } else if (domain === "button") {
+      // Fysieke / integratie buttons
+      this.hass.callService("button", "press", { entity_id: entityId });
+    } else {
+      // Werkt prima voor input_boolean, switch, light, automation, etc.
+      this.hass.callService("homeassistant", "toggle", { entity_id: entityId });
+    }
   }
 
   static get styles() {
@@ -126,6 +180,34 @@ class HvlPopupCard extends LitElement {
         animation-timing-function: linear;
         animation-fill-mode: forwards;
       }
+      
+      .button-section {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 6px;
+        margin-bottom: 10px;
+        margin-top: 10px;
+        text-align: center;
+        height: 120%;
+        Padding: 2px;
+        background-color: transparent;
+      }
+      
+      .action-button {
+        background: var(--primary-color, #03a9f4);
+        color: #ffffff;
+        border: none;
+        padding: 5px 24px;
+        border-radius: 6px;
+        cursor: pointer;
+        font-weight: bold;
+        font-size: 1em;
+        margin-top: 8px;
+        display: flex;
+        min-height: 50px;
+        align-items: center;
+        justify-content: center;
+      } 
     `;
   }
 
@@ -137,15 +219,24 @@ class HvlPopupCard extends LitElement {
       title: "State Changed",
       trigger_entity: "",
       popup_entity: "",
+      additional_action_01: "",
+      buttonTextAdd01: "second button",
+      buttonTextAdd02: "third button",
       trigger: "",
       auto_close: 0,
       overlay_color: "rgba(0, 0, 0, 0.75)",
       bg_color: "var(--card-background-color, #ffffff)",
       text_color: "var(--primary-text-color, #000000)",
+      button_bg_color: "var(--primary-color, #03a9f4)",
+      button_txt_color: "#ffffff",
       font_family: "inherit",
       border_radius: "14px",
       ...config,
     };
+
+    // Reset trigger-state bij een nieuwe/gewijzigde configuratie
+    this._previousState = undefined;
+    this._hasTriggered = false;
   }
 
   getCardSize() {
@@ -166,16 +257,6 @@ class HvlPopupCard extends LitElement {
     }
 
     return str;
-  }
-  
-  _sanitizeAndTruncateText(text, maxLength = 150) {
-    if (!text) return "";
-    const plainText = String(text).replace(/<\/?[^>]+(>|$)/g, "");
-    
-    if (plainText.length <= maxLength) {
-      return plainText;
-    }
-    return plainText.slice(0, maxLength).trim() + "...";
   }
 
   _getTranslatedState(entityObj) {
@@ -237,42 +318,61 @@ class HvlPopupCard extends LitElement {
     
     return this._normalizeState(state) === this._normalizeState(clean);
   }
+  
+  _clampNumber(value, min, max, fallback = min) {
+    const num = Number(value);
+    if (value === "" || value === null || value === undefined || Number.isNaN(num)) {
+      return fallback;
+    }
+    return Math.min(Math.max(num, min), max);
+  }
 
   willUpdate(changedProperties) {
-    if (changedProperties.has("hass") && this.hass && this.config?.trigger_entity) {
-      const triggerEntityId = this.config.trigger_entity;
-      const stateObj = this.hass.states[triggerEntityId];
-      if (!stateObj) return;
-      
-      const currentState = stateObj.state;
+    if (!changedProperties.has("hass") && !changedProperties.has("config")) {
+      return;
+    }
+    if (!this.hass || !this.config?.trigger_entity) return;
 
-      if (this._previousState === undefined) {
-        this._previousState = currentState;
-        this._hasTriggered = this._evaluateTrigger(currentState, (this.config.trigger || "").trim());
+    const triggerEntityId = this.config.trigger_entity;
+    const stateObj = this.hass.states[triggerEntityId];
+    if (!stateObj) return;
+
+    const currentState = stateObj.state;
+    const targetRaw = (this.config.trigger || "").trim();
+
+    if (this._previousState === undefined) {
+      this._previousState = currentState;
+      this._hasTriggered = targetRaw
+        ? this._evaluateTrigger(currentState, targetRaw)
+        : false;
+      return;
+    }
+
+    if (currentState !== this._previousState) {
+      this._previousState = currentState;
+
+      if (!targetRaw) {
+        this.triggerPopup();
         return;
       }
 
-      if (currentState !== this._previousState) {
-        const targetRaw = (this.config.trigger || "").trim();
-        const isSatisfied = this._evaluateTrigger(currentState, targetRaw);
-
-        this._previousState = currentState;
-
-        if (!targetRaw) {
+      const isSatisfied = this._evaluateTrigger(currentState, targetRaw);
+      if (isSatisfied) {
+        if (!this._hasTriggered) {
+          this._hasTriggered = true;
           this.triggerPopup();
-          return;
         }
-
-        if (isSatisfied) {
-          if (!this._hasTriggered) {
-            this._hasTriggered = true;
-            this.triggerPopup();
-          }
-        } else {
-          this._hasTriggered = false;
-        }
+      } else {
+        this._hasTriggered = false;
       }
     }
+  }
+
+  _getAutoCloseSeconds() {
+    const rawAutoClose = this._getConfigValue("auto_close", 0);
+    const parsed = parseInt(rawAutoClose, 10);
+    if (isNaN(parsed) || parsed <= 0) return 0;
+    return Math.floor(this._clampNumber(rawAutoClose, 0, 120, 0));
   }
 
   triggerPopup() {
@@ -283,13 +383,9 @@ class HvlPopupCard extends LitElement {
       this._checkTimerInterval = null;
     }
 
-    // Haal de waarde veilig op via je eigen helper functie
-    const rawAutoClose = this._getConfigValue("auto_close", 0);
-    let timeoutSec = parseInt(rawAutoClose, 10) || 0;
-    
+    const timeoutSec = this._getAutoCloseSeconds();
     if (timeoutSec > 0) {
-      timeoutSec = Math.min(timeoutSec, 120); // Veiligheidshalve gemaximeerd op 120 sec
-      this._closeTimestamp = Date.now() + (timeoutSec * 1000);
+      this._closeTimestamp = Date.now() + timeoutSec * 1000;
 
       this._checkTimerInterval = setInterval(() => {
         if (Date.now() >= this._closeTimestamp) {
@@ -311,6 +407,7 @@ class HvlPopupCard extends LitElement {
     super.disconnectedCallback();
     if (this._checkTimerInterval) {
       clearInterval(this._checkTimerInterval);
+      this._checkTimerInterval = null;
     }
   }
 
@@ -320,7 +417,7 @@ class HvlPopupCard extends LitElement {
         🔔 <strong>${this.config.title || 'HVL Popup'}</strong><br />
         <small>(${this.config.trigger_entity || 'No trigger selected'})</small><br />
         <button class="test-btn" @click=${() => this.triggerPopup()}>
-          Test Pop-up
+          Example button
         </button>
       </div>
     `;
@@ -329,20 +426,49 @@ class HvlPopupCard extends LitElement {
     if (this._showPopup) {
       const TriggerEntityId = this._getConfigValue("trigger_entity");
       const TargetEntityId = this._getConfigValue("popup_entity");
+      const Additional_action01_Id = this._getConfigValue("additional_action_01");
+      const Additional_action02_Id = this._getConfigValue("additional_action_02");
       const popupTextRaw = this.config.popup_text ? this.config.popup_text.trim() : "";
-      const popupText = this._sanitizeAndTruncateText(popupTextRaw, 150);
+      const popupText = sanitizeAndTruncateText(popupTextRaw, 250);
       
       const isCamera = TargetEntityId && TargetEntityId.startsWith("camera.") && !popupText;
-      const autoCloseSec = parseInt(this.config.auto_close, 10) || 0;
+      //const autoCloseSec = parseInt(this.config.auto_close, 10) || 0;
+      const autoCloseSec = this._getAutoCloseSeconds();
 
       const overlayBg = this.config.overlay_color || "rgba(0, 0, 0, 0.75)";
       const cardBg = this.config.bg_color || "var(--card-background-color, #ffffff)";
       const textColor = this.config.text_color || "var(--primary-text-color, #000000)";
       const fontFamily = this.config.font_family || "inherit";
       const borderRadius = this.config.border_radius || "14px";
+      const buttonBgColor = this.config.button_bg_color || "var(--primary-color, #03a9f4)";
+      const buttonTxtColor = this.config.button_text_color || "#ffffff";
+      
+      const buttonTextAddO1Raw = this.config.button_text_action_01 || "";
+      let buttonTextAddO1 = sanitizeAndTruncateText(buttonTextAddO1Raw, 15);
+      
+      const buttonTextAddO2Raw = this.config.button_text_action_02 || "";
+      let buttonTextAddO2 = sanitizeAndTruncateText(buttonTextAddO2Raw, 15);
       
       const TriggerEntityObj = TriggerEntityId ? this.hass.states[TriggerEntityId] : null;
       const TargetEntityObj = TargetEntityId ? this.hass.states[TargetEntityId] : null;
+      const Additional_action01_Obj = Additional_action01_Id ? this.hass.states[Additional_action01_Id] : null
+      const Additional_action02_Obj = Additional_action02_Id ? this.hass.states[Additional_action02_Id] : null
+      
+      const friendlyNameAdd01 = Additional_action01_Obj?.attributes?.friendly_name || Additional_action01_Id;
+      const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
+      
+      if(buttonTextAddO1 == " "){ 
+        buttonTextAddO1 = friendlyNameAdd01};
+      
+      if(buttonTextAddO2 == " "){ 
+        buttonTextAddO2 = friendlyNameAdd02}; 
+        
+      let repeat_frames = 1;
+      if(Additional_action01_Id){
+        repeat_frames = repeat_frames + 1};
+        
+      if(Additional_action02_Id){
+        repeat_frames = repeat_frames + 1};   
 
       let contentHtml = html``;
 
@@ -355,7 +481,7 @@ class HvlPopupCard extends LitElement {
       } else if (TargetEntityId) {
         if (isCamera) {
           contentHtml = html`
-            <div style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #000;">
+            <div style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #000; contain: content;">
               <ha-camera-stream
                 .hass=${this.hass}
                 .stateObj=${TargetEntityObj}
@@ -434,25 +560,42 @@ class HvlPopupCard extends LitElement {
             </h3>
 
             ${contentHtml}
-
-            <button 
-              style="
-                background: var(--primary-color, #03a9f4);
-                color: #ffffff;
-                border: none;
-                padding: 10px 24px;
-                border-radius: 6px;
-                cursor: pointer;
-                font-weight: bold;
-                font-size: 1em;
-                margin-top: 8px;
-                margin-bottom: ${autoCloseSec > 0 ? '6px' : '0px'};
-              "
-              @click=${() => this.closePopup()}
-            >
-              Close
-            </button>
-
+            <div class="button-section" 
+            style="
+                  grid-template-columns: repeat(${repeat_frames}, 1fr);
+                  margin-bottom: ${autoCloseSec > 0 ? '6px' : '0px'};
+                  ">
+              <button class="action-button" style="
+                background-color: ${buttonBgColor} !important;
+                color: ${buttonTxtColor}"
+                @click=${() => this.closePopup()}
+              >
+                Close
+              </button>
+              ${Additional_action01_Id ? 
+                html`
+                <button class="action-button" style="
+                  background-color: ${buttonBgColor} !important;
+                  color: ${buttonTxtColor}"
+                  ?disabled=${!Additional_action01_Id}
+                  @click="${() => this._runAction(Additional_action01_Id)}"
+                >
+                  ${buttonTextAddO1}
+                </button>
+              ` : ''}
+              ${Additional_action02_Id ? 
+                html`
+                <button class="action-button" style="
+                  background-color: ${buttonBgColor} !important;
+                  color: ${buttonTxtColor}"
+                  ?disabled=${!Additional_action02_Id}
+                  @click="${() => this._runAction(Additional_action02_Id)}"
+                >
+                  ${buttonTextAddO2}
+                </button>
+              ` : ''}  
+            </div>
+            
             ${autoCloseSec > 0 ? html`
               <div class="countdown-bar-container">
                 <div class="countdown-bar" style="animation-duration: ${autoCloseSec}s;"></div>
@@ -484,6 +627,66 @@ class HvlPopupCardEditor extends LitElement {
   constructor() {
     super();
     this._activeTab = "general";
+    this._sliderObserver = null;
+  }
+
+  _findElementDeep(id, root = document) {
+    if (!root) return null;
+
+    const elements = root.querySelectorAll ? root.querySelectorAll("*") : [];
+    for (const el of elements) {
+      if (el.id === id) return el;
+      if (el.shadowRoot) {
+        const found = this._findElementDeep(id, el.shadowRoot);
+        if (found) return found;
+      }
+    }
+
+    return null;
+  }
+
+  _attachSliderClass() {
+    const slider =
+      this._findElementDeep("slider", this.renderRoot) ||
+      this._findElementDeep("slider", document);
+
+    if (!slider) return false;
+    
+    if (!slider.classList.contains("add_padding")) {
+      slider.classList.add("add_padding");
+    }
+
+    slider.style.setProperty("padding", "10px", "important");
+    return true;
+  }
+
+  _watchForSlider() {
+    if (this._attachSliderClass() || this._sliderObserver) return;
+
+    this._sliderObserver = new MutationObserver(() => {
+      if (this._attachSliderClass()) {
+        this._sliderObserver.disconnect();
+        this._sliderObserver = null;
+      }
+    });
+
+    this._sliderObserver.observe(document.body, {
+      childList: true,
+      subtree: true,
+    });
+  }
+
+  updated(changedProperties) {
+    super.updated(changedProperties);
+    this._watchForSlider();
+  }
+
+  disconnectedCallback() {
+    super.disconnectedCallback();
+    if (this._sliderObserver) {
+      this._sliderObserver.disconnect();
+      this._sliderObserver = null;
+    }
   }
 
   setConfig(config) {
@@ -559,12 +762,48 @@ class HvlPopupCardEditor extends LitElement {
         }
       },
       {
+        name: "button_bg_color",
+        label: "Button Background Color (CSS color or var(...))",
+        selector: { text: {} },
+      },
+      {
+        name: "button_text_color",
+        label: "Button Text Color (CSS color or var(...))",
+        selector: { text: {} },
+      },
+      {
         name: "border_radius",
         label: "Corner Border Radius (e.g. '14px' or '0px')",
         selector: { text: {} },
       },
     ];
   }
+  
+   _getAdditonalSchema() {
+    return [
+      {
+        name: "additional_action_01",
+        label: "Additional action 1",
+        selector: { entity: { domain: ["button", "input_button", "switch", "script", "input_boolean"] } },
+      },
+      {
+        name: "button_text_action_01",
+        label: "Button text (leave empty for friendly name)",
+        selector: { text: {} },
+      },
+      {
+        name: "additional_action_02",
+        label: "Additional action 2",
+        selector: { entity: { domain: ["button", "input_button", "switch", "script", "input_boolean"] } },
+      },
+      {
+        name: "button_text_action_02",
+        label: "Button text (leave empty for friendly name)",
+        selector: { text: {} },
+      },
+    ];
+  }
+   
 
   static get styles() {
     return css`
@@ -634,9 +873,40 @@ class HvlPopupCardEditor extends LitElement {
         box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         text-align: center;
         width: 80%;
-        max-width: 280px;
+        max-width: 260px;
         box-sizing: border-box;
       }
+      
+      .preview-action-button {
+        font-size: 0.7em; 
+        padding: 3px 8px; 
+        border-radius: 4px; 
+        display: flex; 
+        min-height: 25px;
+        align-items: center;
+        justify-content: center;
+      }
+      
+      .preview-button-container {
+        display: grid;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 10px;
+        margin-top: 10px;
+        text-align: center;
+        height: 120%;
+        Padding: 2px;
+        background-color: transparent;
+      }
+      
+      preview-camera-stream {
+        margin: 16px 0; 
+        border-radius: 8px; 
+        overflow: hidden; 
+        background: #000; 
+        contain: content;
+      }
+      
     `;
   }
 
@@ -648,10 +918,40 @@ class HvlPopupCardEditor extends LitElement {
     const textColor = this._config.text_color || "var(--primary-text-color, #000000)";
     const fontFamily = this._config.font_family || "inherit";
     const borderRadius = this._config.border_radius || "14px";
+    const buttonBgColor = this._config.button_bg_color || "var(--primary-color, #03a9f4)";
+    const buttonTxtColor = this._config.button_text_color || "#ffffff";
 
     const previewEntityId = this._config.popup_entity || this._config.trigger_entity;
     const previewEntityObj = previewEntityId ? this.hass.states[previewEntityId] : null;
     const previewFriendlyName = previewEntityObj?.attributes?.friendly_name || previewEntityId || "Sample Entity";
+    const isCameraEntity = previewEntityId && previewEntityId.startsWith("camera.");
+    const Additional_action01_Id = this._config.additional_action_01;
+    const Additional_action02_Id = this._config.additional_action_02;
+    
+    const buttonTextAdd01Raw = this._config.button_text_action_01|| "";
+    let buttonTextAdd01 = sanitizeAndTruncateText(buttonTextAdd01Raw, 15);
+    
+    const buttonTextAdd02Raw = this._config.button_text_action_02 || "";
+    let buttonTextAdd02 = sanitizeAndTruncateText(buttonTextAdd02Raw, 15);
+    
+    const Additional_action01_Obj = Additional_action01_Id ? this.hass.states[Additional_action01_Id] : null
+    const Additional_action02_Obj = Additional_action02_Id ? this.hass.states[Additional_action02_Id] : null
+    
+    const friendlyNameAdd01 = Additional_action01_Obj?.attributes?.friendly_name || Additional_action01_Id;
+    const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
+    
+    if(buttonTextAdd01 == ""){ 
+      buttonTextAdd01 = friendlyNameAdd01};
+    
+    if(buttonTextAdd02 == ""){ 
+      buttonTextAddO02 = friendlyNameAdd02}; 
+      
+    let repeat_frames = 1;
+    if(Additional_action01_Id){
+      repeat_frames = repeat_frames + 1};
+      
+    if(Additional_action02_Id){
+      repeat_frames = repeat_frames + 1};
     
     let previewStatusText = "OPEN";
     if (this._config.popup_text) {
@@ -659,6 +959,10 @@ class HvlPopupCardEditor extends LitElement {
     } else if (previewEntityObj) {
       const translations = { on: "On", off: "Off", open: "Open", closed: "Closed", home: "Home", not_home: "Away" };
       previewStatusText = translations[previewEntityObj.state?.toLowerCase()] || previewEntityObj.state;
+    } 
+    
+    if (isCameraEntity){
+      previewStatusText = "Camera view";
     }
 
     let tabContent = html``;
@@ -694,22 +998,59 @@ class HvlPopupCardEditor extends LitElement {
               style="background: ${cardBg}; color: ${textColor}; border-radius: ${borderRadius};"
             >
               <div style="font-weight: bold; font-size: 0.9em; color: ${textColor}; word-break: break-word;">
-                ${this._config.title || 'Sample Title'}
+                ${this._config.title || 'My Popup example'}
               </div>
+              
+              ${isCameraEntity ? html`
+              <div class="preview-camera-stream" 
+                <ha-camera-stream
+                  .hass=${this.hass}
+                  .stateObj=${previewEntityObj}
+                  streamType="live"
+                ></ha-camera-stream>
+              </div>
+              ` : html`
               <div style="font-size: 0.75em; opacity: 0.8; margin: 8px 0; word-break: break-word;">
                 ${previewEntityId ? html`Status of <strong>${previewFriendlyName}</strong>:` : 'Status:'}
                 <br>
-                <span style="color: var(--primary-color, #03a9f4); font-weight: bold; font-size: 1.1em;">
+                <span style="color: ${textColor}; font-weight: bold; font-size: 1.1em;">
                   ${previewStatusText}
                 </span>
               </div>
-              <div style="background: var(--primary-color, #03a9f4); color: #fff; font-size: 0.7em; padding: 3px 8px; border-radius: 4px; display: inline-block;">
-                Close
-              </div>
+              ` } 
+              <div class="preview-button-container" 
+                style=" grid-template-columns: repeat(${repeat_frames}, 1fr); color: ${buttonTxtColor};">
+                <div class="preview-action-button" 
+                  style="background: ${buttonBgColor};">
+                    Close
+                </div>
+                ${Additional_action01_Id ? html`
+                <div class="preview-action-button" 
+                  style="background: ${buttonBgColor};">
+                    ${buttonTextAdd01}
+                </div>
+                ` : ''}
+                 ${Additional_action02_Id ? html`
+                <div class="preview-action-button" 
+                  style="background: ${buttonBgColor};">
+                    ${buttonTextAdd02}
+                </div>
+                ` : ''}    
+               </div> 
             </div>
           </div>
         </div>
       `;
+    } else if (this._activeTab === "additional") {
+      tabContent = html`
+        <ha-form
+          .hass=${this.hass}
+          .data=${this._config}
+          .schema=${this._getAdditonalSchema()}
+          .computeLabel=${(schema) => schema.label}
+          @value-changed=${this._valueChanged}
+        ></ha-form>  
+      `;  
     } else if (this._activeTab === "help") {
       tabContent = html`
         <div style="font-size: 0.9em; line-height: 1.6; color: var(--primary-text-color, #333); padding: 4px;">
@@ -726,6 +1067,11 @@ class HvlPopupCardEditor extends LitElement {
 
           <p><strong>3. Auto Close:</strong><br>
           Set a timeout in seconds for 'auto_close' to automatically dismiss the modal (0 = disabled).</p>
+          
+          <p><strong>4. Additional actions/buttons (new):</strong><br>
+          Add one or two buttons to perform actions. (Example: In case of a camera: Add a button to open the door 
+          or/and add a button to take a snapshot...)</p>
+          
         </div>
       `;
     }
@@ -735,6 +1081,7 @@ class HvlPopupCardEditor extends LitElement {
       <div class="tabs">
         <button class="tab ${this._activeTab === 'general' ? 'active' : ''}" @click=${() => this._switchTab('general')}>General</button>
         <button class="tab ${this._activeTab === 'advanced' ? 'active' : ''}" @click=${() => this._switchTab('advanced')}>Appearance</button>
+        <button class="tab ${this._activeTab === 'additional' ? 'active' : ''}" @click=${() => this._switchTab('additional')}>Additional</button>
         <button class="tab ${this._activeTab === 'help' ? 'active' : ''}" @click=${() => this._switchTab('help')}>ℹ️ Help</button>
       </div>
 
