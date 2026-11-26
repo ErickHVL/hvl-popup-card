@@ -49,16 +49,6 @@ class HvlPopupCard extends LitElement {
       _showPopup: { type: Boolean, reflect: true, attribute: 'popup-active' },
     };
   }
-  
-  _sanitizeAndTruncateText(text, maxLength = 150) {
-    if (!text) return "";
-    const plainText = String(text).replace(/<\/?[^>]+(>|$)/g, "");
-    
-    if (plainText.length <= maxLength) {
-      return plainText;
-    }
-    return plainText.slice(0, maxLength).trim() + "...";
-  }
 
   constructor() {
     super();
@@ -293,6 +283,14 @@ class HvlPopupCard extends LitElement {
     return defaultValue;
   }
   
+  _clampNumber(value, min, max, fallback = min) {
+    const num = Number(value);
+    if (value === "" || value === null || value === undefined || Number.isNaN(num)) {
+      return fallback;
+    }
+    return Math.min(Math.max(num, min), max);
+  }
+  
   _evaluateTrigger(state, configTrigger) {
     if (!configTrigger) return true;
     const clean = String(configTrigger).trim();
@@ -317,14 +315,6 @@ class HvlPopupCard extends LitElement {
     }
     
     return this._normalizeState(state) === this._normalizeState(clean);
-  }
-  
-  _clampNumber(value, min, max, fallback = min) {
-    const num = Number(value);
-    if (value === "" || value === null || value === undefined || Number.isNaN(num)) {
-      return fallback;
-    }
-    return Math.min(Math.max(num, min), max);
   }
 
   willUpdate(changedProperties) {
@@ -859,7 +849,7 @@ class HvlPopupCardEditor extends LitElement {
 
       .preview-viewport {
         position: relative;
-        height: 180px;
+        height: 300px;
         border-radius: 6px;
         overflow: hidden;
         display: flex;
@@ -877,7 +867,7 @@ class HvlPopupCardEditor extends LitElement {
         box-sizing: border-box;
       }
       
-      .preview-action-button {
+      .preview-action-button{
         font-size: 0.7em; 
         padding: 3px 8px; 
         border-radius: 4px; 
@@ -885,26 +875,6 @@ class HvlPopupCardEditor extends LitElement {
         min-height: 25px;
         align-items: center;
         justify-content: center;
-      }
-      
-      .preview-button-container {
-        display: grid;
-        align-items: center;
-        gap: 6px;
-        margin-bottom: 10px;
-        margin-top: 10px;
-        text-align: center;
-        height: 120%;
-        Padding: 2px;
-        background-color: transparent;
-      }
-      
-      preview-camera-stream {
-        margin: 16px 0; 
-        border-radius: 8px; 
-        overflow: hidden; 
-        background: #000; 
-        contain: content;
       }
       
     `;
@@ -998,11 +968,11 @@ class HvlPopupCardEditor extends LitElement {
               style="background: ${cardBg}; color: ${textColor}; border-radius: ${borderRadius};"
             >
               <div style="font-weight: bold; font-size: 0.9em; color: ${textColor}; word-break: break-word;">
-                ${this._config.title || 'My Popup example'}
+                ${this._config.title || 'Sample Title'}
               </div>
               
               ${isCameraEntity ? html`
-              <div class="preview-camera-stream" 
+              <div style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #000; contain: content;">
                 <ha-camera-stream
                   .hass=${this.hass}
                   .stateObj=${previewEntityObj}
@@ -1018,8 +988,18 @@ class HvlPopupCardEditor extends LitElement {
                 </span>
               </div>
               ` } 
-              <div class="preview-button-container" 
-                style=" grid-template-columns: repeat(${repeat_frames}, 1fr); color: ${buttonTxtColor};">
+              <div class="preview-button-container" style="
+                display: grid;
+                grid-template-columns: repeat(${repeat_frames}, 1fr);
+                align-items: center;
+                gap: 6px;
+                color: ${buttonTxtColor};
+                margin-bottom: 10px;
+                margin-top: 10px;
+                text-align: center;
+                height: 120%;
+                Padding: 2px;
+                background-color: transparent;">
                 <div class="preview-action-button" 
                   style="background: ${buttonBgColor};">
                     Close
