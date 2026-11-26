@@ -197,7 +197,90 @@ class HvlPopupCard extends LitElement {
         min-height: 50px;
         align-items: center;
         justify-content: center;
-      } 
+      }
+      
+      .camera-container {
+        margin: 16px 0;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #000;
+        contain: content;
+        max-height: 55vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .camera-container ha-camera-stream {
+        width: 100%;
+        max-height: 55vh;
+        display: block;
+        object-fit: contain;
+      }
+      
+      .popup-backdrop {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 99999;
+        backdrop-filter: blur(4px);
+        padding: 16px;
+        box-sizing: border-box;
+      }
+
+      .popup-modal {
+        position: relative;
+        padding: 24px;
+        width: 90%;
+        max-height: 85vh;
+        overflow-y: auto;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        text-align: center;
+        box-sizing: border-box;
+        word-break: break-word;
+      }
+
+      .popup-modal--camera {
+        max-width: 720px;
+      }
+
+      .popup-modal--default {
+        max-width: 480px;
+      }
+
+      .popup-title {
+        margin-top: 0;
+        font-size: 1.4em;
+        word-break: break-word;
+      }
+
+      .popup-text {
+        opacity: 0.9;
+        margin: 16px 0;
+        font-size: 1.1em;
+        line-height: 1.5;
+        word-break: break-word;
+      }
+
+      .popup-status {
+        opacity: 0.85;
+        line-height: 1.5;
+        margin: 20px 0;
+        word-break: break-word;
+      }
+
+      .popup-status-value {
+        font-size: 1.3em;
+        font-weight: bold;
+        display: inline-block;
+        margin-top: 8px;
+        word-break: break-word;
+      }
     `;
   }
 
@@ -464,14 +547,14 @@ class HvlPopupCard extends LitElement {
 
       if (popupText) {
         contentHtml = html`
-          <p style="color: ${textColor}; opacity: 0.9; margin: 16px 0; font-size: 1.1em; line-height: 1.5; word-break: break-word;">
+          <p class="popup-text" style="color: ${textColor};">
             ${popupText}
           </p>
         `;
       } else if (TargetEntityId) {
         if (isCamera) {
           contentHtml = html`
-            <div style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #000; contain: content;">
+            <div class="camera-container">
               <ha-camera-stream
                 .hass=${this.hass}
                 .stateObj=${TargetEntityObj}
@@ -483,10 +566,10 @@ class HvlPopupCard extends LitElement {
           const friendlyName = TargetEntityObj?.attributes?.friendly_name || TargetEntityId;
           const currentValue = this._getTranslatedState(TargetEntityObj);
           contentHtml = html`
-            <p style="color: ${textColor}; opacity: 0.85; line-height: 1.5; margin: 20px 0; word-break: break-word;">
+            <p class="popup-status" style="color: ${textColor};">
               Status of <strong>${friendlyName}</strong>:
               <br />
-              <span style="font-size: 1.3em; font-weight: bold; color: ${textColor}; display: inline-block; margin-top: 8px; word-break: break-word;">
+              <span class="popup-status-value" style="color: ${textColor};">
                 ${currentValue}
               </span>
             </p>
@@ -496,10 +579,10 @@ class HvlPopupCard extends LitElement {
         const friendlyName = TriggerEntityObj?.attributes?.friendly_name || TriggerEntityId || "Trigger";
         const currentValue = this._getTranslatedState(TriggerEntityObj);
         contentHtml = html`
-          <p style="color: ${textColor}; opacity: 0.85; line-height: 1.5; margin: 20px 0; word-break: break-word;">
+          <p class="popup-status" style="color: ${textColor};">
             Status of <strong>${friendlyName}</strong>:
             <br />
-            <span style="font-size: 1.3em; font-weight: bold; color: var(--primary-color, #03a9f4); display: inline-block; margin-top: 8px; word-break: break-word;">
+            <span class="popup-status-value" style="color: var(--primary-color, #03a9f4);">
               ${currentValue}
             </span>
           </p>
@@ -507,45 +590,25 @@ class HvlPopupCard extends LitElement {
       }
 
       popupHtml = html`
-        <div 
+        <div
+          class="popup-backdrop"
           style="
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100vw;
-            height: 100vh;
             background: ${overlayBg};
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            z-index: 99999;
-            backdrop-filter: blur(4px);
             font-family: ${fontFamily};
-            padding: 16px;
-            box-sizing: border-box;
           "
           @click=${() => this.closePopup()}
         >
-          <div 
+          <div
+            class="popup-modal ${isCamera ? 'popup-modal--camera' : 'popup-modal--default'}"
             style="
-              position: relative;
               background: ${cardBg};
               color: ${textColor};
-              padding: 24px;
               border-radius: ${borderRadius};
-              width: 90%;
-              max-width: ${isCamera ? '720px' : '480px'};
-              max-height: 85vh;
-              overflow-y: auto;
-              box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-              text-align: center;
-              box-sizing: border-box;
-              word-break: break-word;
               --card-border-radius: ${borderRadius};
             "
             @click=${(e) => e.stopPropagation()}
           >
-            <h3 style="margin-top: 0; font-size: 1.4em; color: ${textColor}; word-break: break-word;">
+            <h3 class="popup-title" style="color: ${textColor};">
               ${this.config.title}
             </h3>
 
