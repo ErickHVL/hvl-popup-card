@@ -10,6 +10,8 @@
  * https://github.com/ErickHVL/hvl-popup-card
  */
 
+console.log("HVL Popup Card Editor loaded");
+
 const CARD_VERSION = '2.0.0';
 import {
   LitElement,
@@ -46,7 +48,8 @@ class HvlPopupCard extends LitElement {
     return {
       hass: { type: Object },
       config: { type: Object },
-      _showPopup: { type: Boolean, reflect: true, attribute: 'popup-active' },
+      _showPopup: { type: Boolean, reflect: true, attribute: "popup-active" },
+      _showCardPreview: { type: Boolean, reflect: true, attribute: "card-preview" },
     };
   }
 
@@ -58,15 +61,6 @@ class HvlPopupCard extends LitElement {
     this._closeTimestamp = 0;
     this._checkTimerInterval = null;
     this._showCardPreview = false;
-  }
-  
-  static get properties() {
-    return {
-      hass: { type: Object },
-      config: { type: Object },
-      _showPopup: { type: Boolean, reflect: true, attribute: "popup-active" },
-      _showCardPreview: { type: Boolean, reflect: true, attribute: "card-preview" },
-    };
   }
 
   static getConfigElement() {
@@ -329,7 +323,7 @@ class HvlPopupCard extends LitElement {
       title: "State Changed",
       trigger_entity: "",
       popup_entity: "",
-      additional_action_01: "",
+      additional_action01: "",
       buttonTextAdd01: "second button",
       buttonTextAdd02: "third button",
       trigger: "",
@@ -580,11 +574,11 @@ class HvlPopupCard extends LitElement {
     const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
 
     if (!buttonTextAddO1 || buttonTextAddO1.trim() === "") {
-      buttonTextAddO1 = friendlyNameAdd01;
+      buttonTextAdd01 = friendlyNameAdd01;
     }
 
     if (!buttonTextAddO2 || buttonTextAddO2.trim() === "") {
-      buttonTextAddO2 = friendlyNameAdd02;
+      buttonTextAdd02 = friendlyNameAdd02;
     }
 
     let repeat_frames = 1;
@@ -696,7 +690,7 @@ class HvlPopupCard extends LitElement {
                   ?disabled=${!Additional_action01_Id}
                   @click=${() => this._runAction(Additional_action01_Id)}
                 >
-                  ${buttonTextAddO1}
+                  ${buttonTextAdd01}
                 </button>
               ` : ""}
               ${Additional_action02_Id ? html`
@@ -710,7 +704,7 @@ class HvlPopupCard extends LitElement {
                   ?disabled=${!Additional_action02_Id}
                   @click=${() => this._runAction(Additional_action02_Id)}
                 >
-                  ${buttonTextAddO2}
+                  ${buttonTextAdd02}
                 </button>
               ` : ""}
             </div>
@@ -769,7 +763,7 @@ class HvlPopupCard extends LitElement {
                   color: ${buttonTxtColor};
                 "
               >
-                ${buttonTextAddO1}
+                ${buttonTextAdd01}
               </button>
             ` : ""}
             ${Additional_action02_Id ? html`
@@ -781,7 +775,7 @@ class HvlPopupCard extends LitElement {
                   color: ${buttonTxtColor};
                 "
               >
-                ${buttonTextAddO2}
+                ${buttonTextAdd02}
               </button>
             ` : ""}
           </div>
@@ -1152,7 +1146,7 @@ class HvlPopupCardEditor extends LitElement {
       buttonTextAdd01 = friendlyNameAdd01};
     
     if(buttonTextAdd02 == ""){ 
-      buttonTextAddO02 = friendlyNameAdd02}; 
+      buttonTextAdd02 = friendlyNameAdd02}; 
       
     let repeat_frames = 1;
     if(Additional_action01_Id){
