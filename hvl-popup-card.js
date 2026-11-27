@@ -57,6 +57,16 @@ class HvlPopupCard extends LitElement {
     this._hasTriggered = false;
     this._closeTimestamp = 0;
     this._checkTimerInterval = null;
+    this._showCardPreview = false;
+  }
+  
+  static get properties() {
+    return {
+      hass: { type: Object },
+      config: { type: Object },
+      _showPopup: { type: Boolean, reflect: true, attribute: "popup-active" },
+      _showCardPreview: { type: Boolean, reflect: true, attribute: "card-preview" },
+    };
   }
 
   static getConfigElement() {
@@ -101,14 +111,15 @@ class HvlPopupCard extends LitElement {
   static get styles() {
     return css`
       :host {
-        display: none !important;
+        display: none;
       }
 
+      :host([popup-active]),
+      :host([card-preview]),
       :host-context(.edit-mode),
       :host([edit-mode]),
-      .edit-mode :host,
-      :host([popup-active]) {
-        display: block !important;
+      .edit-mode :host {
+        display: block;
       }
 
       .edit-placeholder {
@@ -169,6 +180,12 @@ class HvlPopupCard extends LitElement {
         animation-name: shrinkBar;
         animation-timing-function: linear;
         animation-fill-mode: forwards;
+      }
+      
+      @media (max-width: 480px) {
+        .button-section {
+          grid-template-columns: 1fr;
+        }
       }
       
       .button-section {
@@ -279,6 +296,26 @@ class HvlPopupCard extends LitElement {
         font-weight: bold;
         display: inline-block;
         margin-top: 8px;
+        word-break: break-word;
+      }
+      
+      @media (max-width: 600px) {
+        .popup-card-inline {
+          width: 92%;
+          padding: 14px;
+        }
+      }
+      
+      .popup-card-inline {
+        position: relative;
+        width: 75%;
+        max-width: 100%;
+        min-width: min(260px, 100%);
+        margin: 12px auto;
+        padding: 20px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        text-align: center;
+        box-sizing: border-box;
         word-break: break-word;
       }
     `;
@@ -401,7 +438,22 @@ class HvlPopupCard extends LitElement {
   }
 
   willUpdate(changedProperties) {
-    if (!changedProperties.has("hass") && !changedProperties.has("config")) {
+    if (
+      changedProperties.has("config") ||
+      changedProperties.has("_showPopup")
+    ) {
+      const wantsCardPreview =
+        Boolean(this.config?.show_card_preview) && !this._showPopup;
+      if (this._showCardPreview !== wantsCardPreview) {
+        this._showCardPreview = wantsCardPreview;
+      }
+    }
+
+    if (
+      !changedProperties.has("hass") &&
+      !changedProperties.has("config") &&
+      !changedProperties.has("_showPopup")
+    ) {
       return;
     }
     if (!this.hass || !this.config?.trigger_entity) return;
@@ -487,108 +539,109 @@ class HvlPopupCard extends LitElement {
   render() {
     const editPlaceholder = html`
       <div class="edit-placeholder">
-        🔔 <strong>${this.config.title || 'HVL Popup'}</strong><br />
-        <small>(${this.config.trigger_entity || 'No trigger selected'})</small><br />
+        🔔 <strong>${this.config.title || "HVL Popup"}</strong><br />
+        <small>(${this.config.trigger_entity || "No trigger selected"})</small><br />
         <button class="test-btn" @click=${() => this.triggerPopup()}>
           Example button
         </button>
       </div>
     `;
 
-    let popupHtml = html``;
-    if (this._showPopup) {
-      const TriggerEntityId = this._getConfigValue("trigger_entity");
-      const TargetEntityId = this._getConfigValue("popup_entity");
-      const Additional_action01_Id = this._getConfigValue("additional_action_01");
-      const Additional_action02_Id = this._getConfigValue("additional_action_02");
-      const popupTextRaw = this.config.popup_text ? this.config.popup_text.trim() : "";
-      const popupText = sanitizeAndTruncateText(popupTextRaw, 250);
-      
-      const isCamera = TargetEntityId && TargetEntityId.startsWith("camera.") && !popupText;
-      //const autoCloseSec = parseInt(this.config.auto_close, 10) || 0;
-      const autoCloseSec = this._getAutoCloseSeconds();
+    const TriggerEntityId = this._getConfigValue("trigger_entity");
+    const TargetEntityId = this._getConfigValue("popup_entity");
+    const Additional_action01_Id = this._getConfigValue("additional_action_01");
+    const Additional_action02_Id = this._getConfigValue("additional_action_02");
+    const popupTextRaw = this.config.popup_text ? this.config.popup_text.trim() : "";
+    const popupText = sanitizeAndTruncateText(popupTextRaw, 250);
 
-      const overlayBg = this.config.overlay_color || "rgba(0, 0, 0, 0.75)";
-      const cardBg = this.config.bg_color || "var(--card-background-color, #ffffff)";
-      const textColor = this.config.text_color || "var(--primary-text-color, #000000)";
-      const fontFamily = this.config.font_family || "inherit";
-      const borderRadius = this.config.border_radius || "14px";
-      const buttonBgColor = this.config.button_bg_color || "var(--primary-color, #03a9f4)";
-      const buttonTxtColor = this.config.button_text_color || "#ffffff";
-      
-      const buttonTextAddO1Raw = this.config.button_text_action_01 || "";
-      let buttonTextAddO1 = sanitizeAndTruncateText(buttonTextAddO1Raw, 15);
-      
-      const buttonTextAddO2Raw = this.config.button_text_action_02 || "";
-      let buttonTextAddO2 = sanitizeAndTruncateText(buttonTextAddO2Raw, 15);
-      
-      const TriggerEntityObj = TriggerEntityId ? this.hass.states[TriggerEntityId] : null;
-      const TargetEntityObj = TargetEntityId ? this.hass.states[TargetEntityId] : null;
-      const Additional_action01_Obj = Additional_action01_Id ? this.hass.states[Additional_action01_Id] : null
-      const Additional_action02_Obj = Additional_action02_Id ? this.hass.states[Additional_action02_Id] : null
-      
-      const friendlyNameAdd01 = Additional_action01_Obj?.attributes?.friendly_name || Additional_action01_Id;
-      const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
-      
-      if(buttonTextAddO1 == " "){ 
-        buttonTextAddO1 = friendlyNameAdd01};
-      
-      if(buttonTextAddO2 == " "){ 
-        buttonTextAddO2 = friendlyNameAdd02}; 
-        
-      let repeat_frames = 1;
-      if(Additional_action01_Id){
-        repeat_frames = repeat_frames + 1};
-        
-      if(Additional_action02_Id){
-        repeat_frames = repeat_frames + 1};   
+    const isCamera = TargetEntityId && TargetEntityId.startsWith("camera.") && !popupText;
+    const autoCloseSec = this._getAutoCloseSeconds();
 
-      let contentHtml = html``;
+    const overlayBg = this.config.overlay_color || "rgba(0, 0, 0, 0.75)";
+    const cardBg = this.config.bg_color || "var(--card-background-color, #ffffff)";
+    const textColor = this.config.text_color || "var(--primary-text-color, #000000)";
+    const fontFamily = this.config.font_family || "inherit";
+    const borderRadius = this.config.border_radius || "14px";
+    const buttonBgColor = this.config.button_bg_color || "var(--primary-color, #03a9f4)";
+    const buttonTxtColor = this.config.button_text_color || "#ffffff";
 
-      if (popupText) {
+    const buttonTextAddO1Raw = this.config.button_text_action_01 || "";
+    let buttonTextAddO1 = sanitizeAndTruncateText(buttonTextAddO1Raw, 15);
+
+    const buttonTextAddO2Raw = this.config.button_text_action_02 || "";
+    let buttonTextAddO2 = sanitizeAndTruncateText(buttonTextAddO2Raw, 15);
+
+    const TriggerEntityObj = TriggerEntityId && this.hass ? this.hass.states[TriggerEntityId] : null;
+    const TargetEntityObj = TargetEntityId && this.hass ? this.hass.states[TargetEntityId] : null;
+    const Additional_action01_Obj = Additional_action01_Id && this.hass ? this.hass.states[Additional_action01_Id] : null;
+    const Additional_action02_Obj = Additional_action02_Id && this.hass ? this.hass.states[Additional_action02_Id] : null;
+
+    const friendlyNameAdd01 = Additional_action01_Obj?.attributes?.friendly_name || Additional_action01_Id;
+    const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
+
+    if (!buttonTextAddO1 || buttonTextAddO1.trim() === "") {
+      buttonTextAddO1 = friendlyNameAdd01;
+    }
+
+    if (!buttonTextAddO2 || buttonTextAddO2.trim() === "") {
+      buttonTextAddO2 = friendlyNameAdd02;
+    }
+
+    let repeat_frames = 1;
+    if (Additional_action01_Id) {
+      repeat_frames += 1;
+    }
+    if (Additional_action02_Id) {
+      repeat_frames += 1;
+    }
+
+    let contentHtml = html``;
+    if (popupText) {
+      contentHtml = html`
+        <p class="popup-text" style="color: ${textColor};">
+          ${popupText}
+        </p>
+      `;
+    } else if (TargetEntityId) {
+      if (isCamera) {
         contentHtml = html`
-          <p class="popup-text" style="color: ${textColor};">
-            ${popupText}
-          </p>
+          <div class="camera-container">
+            <ha-camera-stream
+              .hass=${this.hass}
+              .stateObj=${TargetEntityObj}
+              streamType="live"
+            ></ha-camera-stream>
+          </div>
         `;
-      } else if (TargetEntityId) {
-        if (isCamera) {
-          contentHtml = html`
-            <div class="camera-container">
-              <ha-camera-stream
-                .hass=${this.hass}
-                .stateObj=${TargetEntityObj}
-                streamType="live"
-              ></ha-camera-stream>
-            </div>
-          `;
-        } else {
-          const friendlyName = TargetEntityObj?.attributes?.friendly_name || TargetEntityId;
-          const currentValue = this._getTranslatedState(TargetEntityObj);
-          contentHtml = html`
-            <p class="popup-status" style="color: ${textColor};">
-              Status of <strong>${friendlyName}</strong>:
-              <br />
-              <span class="popup-status-value" style="color: ${textColor};">
-                ${currentValue}
-              </span>
-            </p>
-          `;
-        }
       } else {
-        const friendlyName = TriggerEntityObj?.attributes?.friendly_name || TriggerEntityId || "Trigger";
-        const currentValue = this._getTranslatedState(TriggerEntityObj);
+        const friendlyName = TargetEntityObj?.attributes?.friendly_name || TargetEntityId;
+        const currentValue = this._getTranslatedState(TargetEntityObj);
         contentHtml = html`
           <p class="popup-status" style="color: ${textColor};">
             Status of <strong>${friendlyName}</strong>:
             <br />
-            <span class="popup-status-value" style="color: var(--primary-color, #03a9f4);">
+            <span class="popup-status-value" style="color: ${textColor};">
               ${currentValue}
             </span>
           </p>
         `;
       }
+    } else {
+      const friendlyName = TriggerEntityObj?.attributes?.friendly_name || TriggerEntityId || "Trigger";
+      const currentValue = this._getTranslatedState(TriggerEntityObj);
+      contentHtml = html`
+        <p class="popup-status" style="color: ${textColor};">
+          Status of <strong>${friendlyName}</strong>:
+          <br />
+          <span class="popup-status-value" style="color: var(--primary-color, #03a9f4);">
+            ${currentValue}
+          </span>
+        </p>
+      `;
+    }
 
+    let popupHtml = html``;
+    if (this._showPopup) {
       popupHtml = html`
         <div
           class="popup-backdrop"
@@ -599,7 +652,7 @@ class HvlPopupCard extends LitElement {
           @click=${() => this.closePopup()}
         >
           <div
-            class="popup-modal ${isCamera ? 'popup-modal--camera' : 'popup-modal--default'}"
+            class="popup-modal ${isCamera ? "popup-modal--camera" : "popup-modal--default"}"
             style="
               background: ${cardBg};
               color: ${textColor};
@@ -613,55 +666,130 @@ class HvlPopupCard extends LitElement {
             </h3>
 
             ${contentHtml}
-            <div class="button-section" 
-            style="
-                  grid-template-columns: repeat(${repeat_frames}, 1fr);
-                  margin-bottom: ${autoCloseSec > 0 ? '6px' : '0px'};
-                  ">
-              <button class="action-button" style="
-                background-color: ${buttonBgColor} !important;
-                color: ${buttonTxtColor}"
+
+            <div
+              class="button-section"
+              style="
+                grid-template-columns: repeat(${repeat_frames}, 1fr);
+                margin-bottom: ${autoCloseSec > 0 ? "6px" : "0px"};
+              "
+            >
+              <button
+                type="button"
+                class="action-button"
+                style="
+                  background-color: ${buttonBgColor} !important;
+                  color: ${buttonTxtColor};
+                "
                 @click=${() => this.closePopup()}
               >
                 Close
               </button>
-              ${Additional_action01_Id ? 
-                html`
-                <button class="action-button" style="
-                  background-color: ${buttonBgColor} !important;
-                  color: ${buttonTxtColor}"
+              ${Additional_action01_Id ? html`
+                <button
+                  type="button"
+                  class="action-button"
+                  style="
+                    background-color: ${buttonBgColor} !important;
+                    color: ${buttonTxtColor};
+                  "
                   ?disabled=${!Additional_action01_Id}
-                  @click="${() => this._runAction(Additional_action01_Id)}"
+                  @click=${() => this._runAction(Additional_action01_Id)}
                 >
                   ${buttonTextAddO1}
                 </button>
-              ` : ''}
-              ${Additional_action02_Id ? 
-                html`
-                <button class="action-button" style="
-                  background-color: ${buttonBgColor} !important;
-                  color: ${buttonTxtColor}"
+              ` : ""}
+              ${Additional_action02_Id ? html`
+                <button
+                  type="button"
+                  class="action-button"
+                  style="
+                    background-color: ${buttonBgColor} !important;
+                    color: ${buttonTxtColor};
+                  "
                   ?disabled=${!Additional_action02_Id}
-                  @click="${() => this._runAction(Additional_action02_Id)}"
+                  @click=${() => this._runAction(Additional_action02_Id)}
                 >
                   ${buttonTextAddO2}
                 </button>
-              ` : ''}  
+              ` : ""}
             </div>
-            
+
             ${autoCloseSec > 0 ? html`
               <div class="countdown-bar-container">
                 <div class="countdown-bar" style="animation-duration: ${autoCloseSec}s;"></div>
               </div>
-            ` : ''}
+            ` : ""}
           </div>
         </div>
       `;
     }
 
-    return html`
-      ${editPlaceholder}${popupHtml}
-    `;
+    let inlinePreviewHtml = html``;
+    if (this._showCardPreview) {
+      inlinePreviewHtml = html`
+        <div
+          class="popup-card-inline"
+          style="
+            background: ${cardBg};
+            color: ${textColor};
+            border-radius: ${borderRadius};
+            font-family: ${fontFamily};
+          "
+        >
+          <h3 class="popup-title" style="color: ${textColor};">
+            ${this.config.title || "Title Popup"}
+          </h3>
+
+          ${contentHtml}
+
+          <div
+            class="button-section"
+            style="
+              grid-template-columns: repeat(${repeat_frames}, 1fr);
+              margin-bottom: 0px;
+            "
+          >
+            <button
+              type="button"
+              class="action-button"
+              style="
+                background-color: ${buttonBgColor} !important;
+                color: ${buttonTxtColor};
+              "
+            >
+              Close
+            </button>
+            ${Additional_action01_Id ? html`
+              <button
+                type="button"
+                class="action-button"
+                style="
+                  background-color: ${buttonBgColor} !important;
+                  color: ${buttonTxtColor};
+                "
+              >
+                ${buttonTextAddO1}
+              </button>
+            ` : ""}
+            ${Additional_action02_Id ? html`
+              <button
+                type="button"
+                class="action-button"
+                style="
+                  background-color: ${buttonBgColor} !important;
+                  color: ${buttonTxtColor};
+                "
+              >
+                ${buttonTextAddO2}
+              </button>
+            ` : ""}
+          </div>
+        </div>
+      `;
+    }
+
+    return html`${editPlaceholder}${inlinePreviewHtml}${popupHtml}`;
   }
 }
 
@@ -784,6 +912,16 @@ class HvlPopupCardEditor extends LitElement {
   _getAdvancedSchema() {
     return [
       {
+        name: "show_card_preview",
+        label: "Show inline card preview when configured",
+        selector: { boolean: {} },
+      },
+      {
+        name: "overlay_color",
+        label: "Backdrop Background Color (e.g. rgba(0,0,0,0.75))",
+        selector: { text: {} },
+      },
+      {
         name: "overlay_color",
         label: "Backdrop Background Color (e.g. rgba(0,0,0,0.75))",
         selector: { text: {} },
@@ -808,7 +946,8 @@ class HvlPopupCardEditor extends LitElement {
               { value: "Helvetica, sans-serif", label: "Helvetica" },
               { value: "Verdana, sans-serif", label: "Verdana" },
               { value: "Trebuchet MS, sans-serif", label: "Trebuchet MS" },
-              { value: "Tahoma, sans-serif", label: "Tahoma" }
+              { value: "Tahoma, sans-serif", label: "Tahoma" },
+              { value: "", label: "Inherit"}
             ],
             mode: "dropdown"
           }
@@ -940,6 +1079,42 @@ class HvlPopupCardEditor extends LitElement {
         justify-content: center;
       }
       
+      .preview-card-title {
+        font-weight: bold;
+        font-size: 0.9em;
+        word-break: break-word;
+      }
+      
+      .preview-camera-container {
+        margin: 16px 0;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #000;
+        contain: content;
+      }
+      
+      .preview-status-text {
+        font-size: 0.75em;
+        opacity: 0.8;
+        margin: 8px 0;
+        word-break: break-word;
+      }
+
+      .preview-status-value {
+        font-weight: bold;
+        font-size: 1.1em;
+      }
+
+      .preview-button-container {
+        display: grid;
+        align-items: center;
+        gap: 6px;
+        margin-top: 10px;
+        margin-bottom: 10px;
+        padding: 2px;
+        text-align: center;
+        background-color: transparent;
+      }
     `;
   }
 
@@ -1035,34 +1210,29 @@ class HvlPopupCardEditor extends LitElement {
               </div>
               
               ${isCameraEntity ? html`
-              <div style="margin: 16px 0; border-radius: 8px; overflow: hidden; background: #000; contain: content;">
-                <ha-camera-stream
-                  .hass=${this.hass}
-                  .stateObj=${previewEntityObj}
-                  streamType="live"
-                ></ha-camera-stream>
-              </div>
+                <div class="preview-camera-container">
+                  <ha-camera-stream
+                    .hass=${this.hass}
+                    .stateObj=${previewEntityObj}
+                    streamType="live"
+                  ></ha-camera-stream>
+                </div>
               ` : html`
-              <div style="font-size: 0.75em; opacity: 0.8; margin: 8px 0; word-break: break-word;">
-                ${previewEntityId ? html`Status of <strong>${previewFriendlyName}</strong>:` : 'Status:'}
-                <br>
-                <span style="color: ${textColor}; font-weight: bold; font-size: 1.1em;">
-                  ${previewStatusText}
-                </span>
-              </div>
+              <div class="preview-status-text">
+                  ${previewEntityId ? html`Status of <strong>${previewFriendlyName}</strong>:` : 'Status:'}
+                  <br/>
+                  <span class="preview-status-value" style="color: ${textColor};">
+                    ${previewStatusText}
+                  </span>
+                </div>
               ` } 
-              <div class="preview-button-container" style="
-                display: grid;
-                grid-template-columns: repeat(${repeat_frames}, 1fr);
-                align-items: center;
-                gap: 6px;
-                color: ${buttonTxtColor};
-                margin-bottom: 10px;
-                margin-top: 10px;
-                text-align: center;
-                height: 120%;
-                Padding: 2px;
-                background-color: transparent;">
+              <div
+                class="preview-button-container"
+                style="
+                  grid-template-columns: repeat(${repeat_frames}, 1fr);
+                  color: ${buttonTxtColor};
+                "
+              >
                 <div class="preview-action-button" 
                   style="background: ${buttonBgColor};">
                     Close
