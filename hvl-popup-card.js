@@ -11,7 +11,6 @@
  */
 
 console.log("HVL Popup Card Editor loaded");
-
 const CARD_VERSION = '2.0.0';
 import {
   LitElement,
@@ -323,7 +322,7 @@ class HvlPopupCard extends LitElement {
       title: "State Changed",
       trigger_entity: "",
       popup_entity: "",
-      additional_action01: "",
+      additional_action_01: "",
       buttonTextAdd01: "second button",
       buttonTextAdd02: "third button",
       trigger: "",
@@ -559,11 +558,11 @@ class HvlPopupCard extends LitElement {
     const buttonBgColor = this.config.button_bg_color || "var(--primary-color, #03a9f4)";
     const buttonTxtColor = this.config.button_text_color || "#ffffff";
 
-    const buttonTextAddO1Raw = this.config.button_text_action_01 || "";
-    let buttonTextAddO1 = sanitizeAndTruncateText(buttonTextAddO1Raw, 15);
+    const buttonTextAdd01Raw = this.config.button_text_action_01 || "";
+    let buttonTextAdd01 = sanitizeAndTruncateText(buttonTextAdd01Raw, 15);
 
-    const buttonTextAddO2Raw = this.config.button_text_action_02 || "";
-    let buttonTextAddO2 = sanitizeAndTruncateText(buttonTextAddO2Raw, 15);
+    const buttonTextAdd02Raw = this.config.button_text_action_02 || "";
+    let buttonTextAdd02 = sanitizeAndTruncateText(buttonTextAdd02Raw, 15);
 
     const TriggerEntityObj = TriggerEntityId && this.hass ? this.hass.states[TriggerEntityId] : null;
     const TargetEntityObj = TargetEntityId && this.hass ? this.hass.states[TargetEntityId] : null;
@@ -573,11 +572,11 @@ class HvlPopupCard extends LitElement {
     const friendlyNameAdd01 = Additional_action01_Obj?.attributes?.friendly_name || Additional_action01_Id;
     const friendlyNameAdd02 = Additional_action02_Obj?.attributes?.friendly_name || Additional_action02_Id;
 
-    if (!buttonTextAddO1 || buttonTextAddO1.trim() === "") {
+    if (!buttonTextAdd01 || buttonTextAdd01.trim() === "") {
       buttonTextAdd01 = friendlyNameAdd01;
     }
 
-    if (!buttonTextAddO2 || buttonTextAddO2.trim() === "") {
+    if (!buttonTextAdd02 || buttonTextAdd02.trim() === "") {
       buttonTextAdd02 = friendlyNameAdd02;
     }
 
